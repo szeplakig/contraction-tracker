@@ -124,6 +124,37 @@
             </div>
         </section>
 
+
+        <section class="glass rounded-2xl shadow-soft p-4 sm:p-6 mb-6" id="ruleTracker">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-lg font-semibold">Rule Tracker</h2>
+                <div class="text-xs text-slate-500">10‑1‑1 and 5‑1‑1</div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div id="ruleCard1011" class="rounded-xl p-4 glass shadow-soft border border-slate-200">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="text-xs text-slate-500">10‑1‑1</div>
+                            <div class="text-lg font-semibold tabular-nums" id="r1011Status">Not yet</div>
+                        </div>
+                        <div class="text-xs text-slate-500" id="r1011When">—</div>
+                    </div>
+                    <div class="mt-2 text-sm text-slate-600" id="r1011Details"></div>
+                </div>
+                <div id="ruleCard511" class="rounded-xl p-4 glass shadow-soft border border-slate-200">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="text-xs text-slate-500">5‑1‑1</div>
+                            <div class="text-lg font-semibold tabular-nums" id="r511Status">Not yet</div>
+                        </div>
+                        <div class="text-xs text-slate-500" id="r511When">—</div>
+                    </div>
+                    <div class="mt-2 text-sm text-slate-600" id="r511Details"></div>
+                </div>
+            </div>
+        </section>
+
+
         <section class="glass rounded-2xl shadow-soft p-4 sm:p-6 mb-6">
             <h2 class="text-lg font-semibold mb-4">Charts</h2>
             <div class="grid gap-6">
@@ -230,6 +261,8 @@
                 let intervalChart = null;
                 let lhDurationChart = null;
                 let lhFrequencyChart = null;
+                let rulePrev = { '5-1-1': false, '10-1-1': false };
+
 
                 // Utils
                 function load() {
@@ -598,11 +631,60 @@
                     });
                 }
 
+                function ruleCheck(thresholdMin) {
+                    const now = nowMs();
+                    const cutoff = now - 60 * 60 * 1000;
+                    const rows = calcDerived().filter(r => r.start >= cutoff);
+                    const durations = rows.map(r => Math.round(r.duration / 1000));
+                    const intervals = rows.filter(r => r.sincePrev != null).map(r => Math.round(r.sincePrev / 1000));
+                    const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : Infinity;
+                    const med = a => {
+                        if (!a.length) return 0;
+                        const m = [...a].sort((x, y) => x - y); const i = Math.floor(m.length / 2);
+                        return m.length % 2 ? m[i] : (m[i - 1] + m[i]) / 2;
+                    };
+                    const targetCount = Math.floor(60 / thresholdMin);
+                    const n = rows.length;
+                    const avgInterval = intervals.length ? avg(intervals) : Infinity;
+                    const medDur = med(durations);
+                    const met = n >= targetCount && medDur >= 60 && avgInterval <= thresholdMin * 60;
+                    const since = rows.length ? rows[0].start : null;
+                    return { met, n, medDur, avgInterval, since };
+                }
+
+                function renderRuleTracker() {
+                    const el1011 = document.getElementById('r1011Status');
+                    const el511 = document.getElementById('r511Status');
+                    if (!el1011 || !el511) return;
+                    const r1011 = ruleCheck(10);
+                    const r511 = ruleCheck(5);
+
+                    const setCard = (prefix, r, label) => {
+                        const statusEl = document.getElementById(`${prefix}Status`);
+                        const whenEl = document.getElementById(`${prefix}When`);
+                        const detailsEl = document.getElementById(`${prefix}Details`);
+                        const card = document.getElementById(prefix === 'r1011' ? 'ruleCard1011' : 'ruleCard511');
+                        statusEl.textContent = r.met ? 'Met' : 'Not yet';
+                        if (card) card.className = `rounded-xl p-4 glass shadow-soft border ${r.met ? 'border-calm-400 bg-white' : 'border-slate-200 bg-white'}`;
+                        whenEl.textContent = r.since ? `since ${new Date(r.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '—';
+                        detailsEl.textContent = r.avgInterval === Infinity ? 'waiting for more data' : `count ${r.n}, median dur ${Math.round(r.medDur)}s, avg interval ${Math.round(r.avgInterval)}s (≤ ${label} min)`;
+                    };
+
+                    setCard('r1011', r1011, 10);
+                    setCard('r511', r511, 5);
+
+                    const nowMet1011 = r1011.met; const nowMet511 = r511.met;
+                    if (nowMet1011 && !rulePrev['10-1-1'] && navigator.vibrate) navigator.vibrate([30, 40, 30]);
+                    if (nowMet511 && !rulePrev['5-1-1'] && navigator.vibrate) navigator.vibrate([40, 60, 40]);
+                    rulePrev['10-1-1'] = nowMet1011;
+                    rulePrev['5-1-1'] = nowMet511;
+                }
                 function render() {
                     renderStats();
                     renderLastHourWidget();
                     renderTable();
                     renderCharts();
+                    renderRuleTracker();
                 }
 
                 // Event bindings
