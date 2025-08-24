@@ -7,7 +7,6 @@
     <title>Contraction Tracker</title>
     <meta name="theme-color" content="#dcfce7" />
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-    <script src="https://cdn.jsdelivr.net/npm/tailwindcss-animate@1.0.7/dist/index.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -96,8 +95,37 @@
             </div>
         </section>
 
-        <section class="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4 mb-6" id="statsGrid">
-            <!-- Stats tiles injected -->
+        <section class="glass rounded-2xl shadow-soft p-4 sm:p-6 mb-6" id="lastHour">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-lg font-semibold">Last Hour</h2>
+                <div class="text-xs text-slate-500" id="lastHourTimestamp">—</div>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div class="glass rounded-xl p-3 sm:p-4 shadow-soft">
+                    <div class="text-xs text-slate-500">Contractions (1h)</div>
+                    <div class="text-lg font-semibold tabular-nums" id="lhCount">0</div>
+                </div>
+                <div class="glass rounded-xl p-3 sm:p-4 shadow-soft">
+                    <div class="text-xs text-slate-500">Avg Duration</div>
+                    <div class="text-lg font-semibold tabular-nums" id="lhAvgDur">-</div>
+                </div>
+                <div class="glass rounded-xl p-3 sm:p-4 shadow-soft">
+                    <div class="text-xs text-slate-500">Avg Interval</div>
+                    <div class="text-lg font-semibold tabular-nums" id="lhAvgInt">-</div>
+                </div>
+                <div class="glass rounded-xl p-3 sm:p-4 shadow-soft">
+                    <div class="text-xs text-slate-500">Frequency</div>
+                    <div class="text-lg font-semibold tabular-nums" id="lhFreq">-</div>
+                </div>
+            </div>
+            <div class="grid gap-6 mt-4">
+                <div class="h-32">
+                    <canvas id="lhDurationChart" aria-label="Duration last hour" role="img"></canvas>
+                </div>
+                <div class="h-32">
+                    <canvas id="lhFrequencyChart" aria-label="Frequency last hour" role="img"></canvas>
+                </div>
+            </div>
         </section>
 
         <section class="glass rounded-2xl shadow-soft p-4 sm:p-6 mb-6">
@@ -187,7 +215,7 @@
                 const exportBtn = $('#exportBtn');
                 const importBtn = $('#importBtn');
                 const clearBtn = $('#clearBtn');
-                const statsGrid = $('#statsGrid');
+                let statsGrid = $('#statsGrid');
                 const tableBody = $('#tableBody');
                 const fileInput = $('#fileInput');
 
@@ -204,6 +232,8 @@
                 // Charts
                 let durationChart = null;
                 let intervalChart = null;
+                let lhDurationChart = null;
+                let lhFrequencyChart = null;
 
                 // Utils
                 function load() {
@@ -405,6 +435,16 @@
                 }
 
                 function renderStats() {
+                    // Ensure stats grid exists even if HTML failed to render earlier
+                    if (!statsGrid) {
+                        const sec = document.createElement('section');
+                        sec.id = 'statsGrid';
+                        sec.className = 'grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4 mb-6';
+                        const main = document.querySelector('main');
+                        const anchor = document.getElementById('lastHour');
+                        if (main) main.insertBefore(sec, anchor || main.children[2] || null);
+                        statsGrid = sec;
+                    }
                     const s = stats();
                     const tiles = [
                         { label: 'Total', value: s.count },
@@ -416,6 +456,12 @@
                         { label: 'Last 5 Avg Dur', value: s.last5AvgDur ? fmtDur(s.last5AvgDur) : '-' },
                         { label: 'Last 5 Avg Int', value: s.last5AvgInterval ? fmtDur(s.last5AvgInterval) : '-' },
                     ];
+                    statsGrid.innerHTML = tiles.map(t => `
+        <div class="glass rounded-xl p-3 sm:p-4 shadow-soft">
+          <div class="text-xs text-slate-500">${t.label}</div>
+          <div class="text-lg font-semibold tabular-nums">${t.value}</div>
+        </div>
+      `).join('');
                     statsGrid.innerHTML = tiles.map(t => `
         <div class="glass rounded-xl p-3 sm:p-4 shadow-soft">
           <div class="text-xs text-slate-500">${t.label}</div>
@@ -506,8 +552,60 @@
                     });
                 }
 
+                function lastHourStats() {
+                    const now = nowMs();
+                    const cutoff = now - 60 * 60 * 1000;
+                    const rows = calcDerived();
+                    const inWindow = rows.filter(r => r.start >= cutoff);
+                    const durations = inWindow.map(r => r.duration);
+                    const intervals = inWindow.filter(r => r.sincePrev != null).map(r => r.sincePrev);
+                    const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+                    const avgDur = avg(durations);
+                    const avgInterval = avg(intervals);
+                    const freqPerHour = avgInterval ? (3600_000 / avgInterval) : 0;
+                    const durSeries = inWindow.map(r => ({ x: r.start, y: Math.round(r.duration / 1000) }));
+                    const freqSeries = inWindow.filter(r => r.sincePrev != null).map(r => ({ x: r.start, y: +(3600_000 / r.sincePrev).toFixed(2) }));
+                    return { count: inWindow.length, avgDur, avgInterval, freqPerHour, durSeries, freqSeries, cutoff };
+                }
+
+                function renderLastHourWidget() {
+                    const s = lastHourStats();
+                    const countEl = document.getElementById('lhCount');
+                    if (!countEl) return;
+                    countEl.textContent = String(s.count);
+                    document.getElementById('lhAvgDur').textContent = s.avgDur ? fmtDur(s.avgDur) : '-';
+                    document.getElementById('lhAvgInt').textContent = s.avgInterval ? fmtDur(s.avgInterval) : '-';
+                    document.getElementById('lhFreq').textContent = s.freqPerHour ? `${s.freqPerHour.toFixed(1)}/h` : '-';
+                    document.getElementById('lastHourTimestamp').textContent = s.count ? `since ${new Date(s.cutoff).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '—';
+
+                    const common = {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'nearest', intersect: false },
+                        scales: { x: { type: 'time', time: { unit: 'minute' }, grid: { display: false } }, y: { beginAtZero: true } },
+                        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (i) => `${i.parsed.y}` } } }
+                    };
+
+                    const dctx = document.getElementById('lhDurationChart').getContext('2d');
+                    if (lhDurationChart) lhDurationChart.destroy();
+                    lhDurationChart = new Chart(dctx, {
+                        type: 'line',
+                        data: { datasets: [{ label: 'Duration (sec)', data: s.durSeries, tension: 0.3, fill: true }] },
+                        options: { ...common, scales: { ...common.scales, y: { ...common.scales.y, title: { display: true, text: 'Dur (sec)' } } }, plugins: { ...common.plugins, tooltip: { callbacks: { label: (i) => `${i.parsed.y} sec` } } } }
+                    });
+
+                    const fctx = document.getElementById('lhFrequencyChart').getContext('2d');
+                    if (lhFrequencyChart) lhFrequencyChart.destroy();
+                    lhFrequencyChart = new Chart(fctx, {
+                        type: 'line',
+                        data: { datasets: [{ label: 'Frequency (/h)', data: s.freqSeries, tension: 0.3, fill: true }] },
+                        options: { ...common, scales: { ...common.scales, y: { ...common.scales.y, title: { display: true, text: 'Freq (/h)' } } } }
+                    });
+                }
+
                 function render() {
                     renderStats();
+                    renderLastHourWidget();
                     renderTable();
                     renderCharts();
                 }
@@ -535,6 +633,7 @@
                 // Initialize
                 updateTimerDisplay(0);
                 render();
+                setInterval(renderLastHourWidget, 30000);
             })();
     </script>
 </body>
