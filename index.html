@@ -100,7 +100,7 @@
                 <h2 class="text-lg font-semibold">Last Hour</h2>
                 <div class="text-xs text-slate-500" id="lastHourTimestamp">—</div>
             </div>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="grid grid-cols-3 sm:grid-cols-3 gap-3">
                 <div class="glass rounded-xl p-3 sm:p-4 shadow-soft">
                     <div class="text-xs text-slate-500">Contractions (1h)</div>
                     <div class="text-lg font-semibold tabular-nums" id="lhCount">0</div>
@@ -112,10 +112,6 @@
                 <div class="glass rounded-xl p-3 sm:p-4 shadow-soft">
                     <div class="text-xs text-slate-500">Avg Interval</div>
                     <div class="text-lg font-semibold tabular-nums" id="lhAvgInt">-</div>
-                </div>
-                <div class="glass rounded-xl p-3 sm:p-4 shadow-soft">
-                    <div class="text-xs text-slate-500">Frequency</div>
-                    <div class="text-lg font-semibold tabular-nums" id="lhFreq">-</div>
                 </div>
             </div>
             <div class="grid gap-6 mt-4">
@@ -564,8 +560,8 @@
                     const avgInterval = avg(intervals);
                     const freqPerHour = avgInterval ? (3600_000 / avgInterval) : 0;
                     const durSeries = inWindow.map(r => ({ x: r.start, y: Math.round(r.duration / 1000) }));
-                    const freqSeries = inWindow.filter(r => r.sincePrev != null).map(r => ({ x: r.start, y: +(3600_000 / r.sincePrev).toFixed(2) }));
-                    return { count: inWindow.length, avgDur, avgInterval, freqPerHour, durSeries, freqSeries, cutoff };
+                    const intSeries = inWindow.filter(r => r.sincePrev != null).map(r => ({ x: r.start, y: +(r.sincePrev / 1000).toFixed(0) }));
+                    return { count: inWindow.length, avgDur, avgInterval, freqPerHour, durSeries, intSeries, cutoff };
                 }
 
                 function renderLastHourWidget() {
@@ -575,7 +571,6 @@
                     countEl.textContent = String(s.count);
                     document.getElementById('lhAvgDur').textContent = s.avgDur ? fmtDur(s.avgDur) : '-';
                     document.getElementById('lhAvgInt').textContent = s.avgInterval ? fmtDur(s.avgInterval) : '-';
-                    document.getElementById('lhFreq').textContent = s.freqPerHour ? `${s.freqPerHour.toFixed(1)}/h` : '-';
                     document.getElementById('lastHourTimestamp').textContent = s.count ? `since ${new Date(s.cutoff).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '—';
 
                     const common = {
@@ -598,8 +593,8 @@
                     if (lhFrequencyChart) lhFrequencyChart.destroy();
                     lhFrequencyChart = new Chart(fctx, {
                         type: 'line',
-                        data: { datasets: [{ label: 'Frequency (/h)', data: s.freqSeries, tension: 0.3, fill: true }] },
-                        options: { ...common, scales: { ...common.scales, y: { ...common.scales.y, title: { display: true, text: 'Freq (/h)' } } } }
+                        data: { datasets: [{ label: 'Interval (sec)', data: s.intSeries, tension: 0.3, fill: true }] },
+                        options: { ...common, scales: { ...common.scales, y: { ...common.scales.y, title: { display: true, text: 'Interval (sec)' } } }, plugins: { ...common.plugins, tooltip: { callbacks: { label: (i) => `${fmtDur(i.parsed.y * 1000)}` } } } }
                     });
                 }
 
